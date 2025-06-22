@@ -76,8 +76,29 @@ class SubprocessMonitor:
     def stop(self):
         self.logger.info("Stopping subprocess.")
         if self.process and self.process.is_running():
-            self.process.terminate()
-            self.process.wait()
+            try:
+                # First try graceful termination
+                self.process.terminate()
+                # Wait up to 5 seconds for graceful shutdown
+                self.process.wait(timeout=5)
+                self.logger.info("Subprocess terminated gracefully.")
+            except psutil.TimeoutExpired:
+                # Force kill if graceful termination fails
+                self.logger.info("Subprocess did not terminate gracefully, force killing.")
+                self.process.kill()
+                self.process.wait()
+                self.logger.info("Subprocess force killed.")
+            except Exception as e:
+                self.logger.error(f"Error stopping subprocess: {e}")
+                # Try force kill as last resort
+                try:
+                    self.process.kill()
+                    self.process.wait()
+                    self.logger.info("Subprocess force killed after error.")
+                except Exception as kill_error:
+                    self.logger.error(f"Failed to force kill subprocess: {kill_error}")
+        else:
+            self.logger.info("Subprocess is not running or already stopped.")
 
     # def __del__(self):
     #     if self.process.is_running():

@@ -6,10 +6,10 @@ import re
 import voyager.utils as U
 from voyager.prompts import load_prompt
 from voyager.utils.json_utils import fix_and_parse_json
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.vectorstores import Chroma
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_chroma import Chroma
 
 
 class CurriculumAgent:
@@ -27,14 +27,14 @@ class CurriculumAgent:
         core_inventory_items: str | None = None,
     ):
         self.llm = ChatOpenAI(
-            model_name=model_name,
+            model=model_name,
             temperature=temperature,
-            request_timeout=request_timout,
+            timeout=request_timout,
         )
         self.qa_llm = ChatOpenAI(
-            model_name=qa_model_name,
+            model=qa_model_name,
             temperature=qa_temperature,
-            request_timeout=request_timout,
+            timeout=request_timout,
         )
         assert mode in [
             "auto",
@@ -408,7 +408,7 @@ class CurriculumAgent:
                 texts=[question],
             )
             U.dump_json(self.qa_cache, f"{self.ckpt_dir}/curriculum/qa_cache.json")
-            self.qa_cache_questions_vectordb.persist()
+            # Note: Chroma now auto-persists, so no need to call persist() explicitly
             questions.append(question)
             answers.append(answer)
         assert len(questions_new) == len(questions) == len(answers)
@@ -429,7 +429,7 @@ class CurriculumAgent:
                 texts=[question],
             )
             U.dump_json(self.qa_cache, f"{self.ckpt_dir}/curriculum/qa_cache.json")
-            self.qa_cache_questions_vectordb.persist()
+            # Note: Chroma now auto-persists, so no need to call persist() explicitly
         context = f"Question: {question}\n{answer}"
         return context
 

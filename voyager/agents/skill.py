@@ -1,10 +1,10 @@
 import os
 
 import voyager.utils as U
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.vectorstores import Chroma
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_chroma import Chroma
 
 from voyager.prompts import load_prompt
 from voyager.control_primitives import load_control_primitives
@@ -21,9 +21,9 @@ class SkillManager:
         resume=False,
     ):
         self.llm = ChatOpenAI(
-            model_name=model_name,
+            model=model_name,
             temperature=temperature,
-            request_timeout=request_timout,
+            timeout=request_timout,
         )
         U.f_mkdir(f"{ckpt_dir}/skill/code")
         U.f_mkdir(f"{ckpt_dir}/skill/description")
@@ -97,7 +97,7 @@ class SkillManager:
             f"{self.ckpt_dir}/skill/description/{dumped_program_name}.txt",
         )
         U.dump_json(self.skills, f"{self.ckpt_dir}/skill/skills.json")
-        self.vectordb.persist()
+        # Note: Chroma now auto-persists, so no need to call persist() explicitly
 
     def generate_skill_description(self, program_name, program_code):
         messages = [

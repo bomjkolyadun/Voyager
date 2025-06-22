@@ -1,4 +1,4 @@
-import type { Callback } from './index'
+import type { Callback } from './types'
 export type Task = (cb: Callback) => void
 export type SyncTask = () => void
 
@@ -58,7 +58,7 @@ export class TaskQueue {
       }
 
       try {
-        taskList[index]((err) => {
+        taskList[index]((err: any) => {
           if (err !== undefined) {
             if (cb !== undefined) cb(err)
 

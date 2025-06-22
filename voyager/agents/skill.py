@@ -42,12 +42,39 @@ class SkillManager:
             embedding_function=OpenAIEmbeddings(),
             persist_directory=f"{ckpt_dir}/skill/vectordb",
         )
-        assert self.vectordb._collection.count() == len(self.skills), (
-            f"Skill Manager's vectordb is not synced with skills.json.\n"
-            f"There are {self.vectordb._collection.count()} skills in vectordb but {len(self.skills)} skills in skills.json.\n"
-            f"Did you set resume=False when initializing the manager?\n"
-            f"You may need to manually delete the vectordb directory for running from scratch."
-        )
+        
+        # Handle vectordb sync issues gracefully
+        vectordb_count = self.vectordb._collection.count()
+        skills_count = len(self.skills)
+        
+        if vectordb_count != skills_count:
+            print(f"\033[33mWarning: Skill Manager's vectordb is not synced with skills.json.\033[0m")
+            print(f"\033[33mThere are {vectordb_count} skills in vectordb but {skills_count} skills in skills.json.\033[0m")
+            
+            if not resume and vectordb_count > 0:
+                print(f"\033[33mClearing vectordb to start fresh since resume=False.\033[0m")
+                # Clear the vectordb collection by deleting all documents
+                try:
+                    # Get all IDs first
+                    all_data = self.vectordb.get()
+                    if all_data['ids']:
+                        self.vectordb.delete(ids=all_data['ids'])
+                    print(f"\033[33mSkill vectordb cleared. Now synced with empty skills.\033[0m")
+                except Exception as e:
+                    print(f"\033[33mError clearing vectordb: {e}. Continuing anyway.\033[0m")
+            elif resume and vectordb_count == 0 and skills_count > 0:
+                print(f"\033[33mRebuilding vectordb from skills.json since resume=True.\033[0m")
+                # Rebuild vectordb from skills
+                for skill_name, entry in self.skills.items():
+                    self.vectordb.add_texts(
+                        texts=[entry['description']],
+                        ids=[skill_name],
+                        metadatas=[{"name": skill_name}],
+                    )
+                print(f"\033[33mSkill vectordb rebuilt with {len(self.skills)} skills.\033[0m")
+            elif resume and vectordb_count > skills_count:
+                print(f"\033[33mSkill vectordb has more entries than skills.json. This might indicate data corruption.\033[0m")
+                print(f"\033[33mConsider deleting the vectordb directory manually if issues persist.\033[0m")
 
     @property
     def programs(self):
@@ -108,7 +135,7 @@ class SkillManager:
                 + f"The main function is `{program_name}`."
             ),
         ]
-        skill_description = f"    // { self.llm(messages).content}"
+        skill_description = f"    // { self.llm.invoke(messages).content}"
         return f"async function {program_name}(bot) {{\n{skill_description}\n}}"
 
     def retrieve_skills(self, query):

@@ -203,7 +203,7 @@ class Voyager:
     def step(self):
         if self.action_agent_rollout_num_iter < 0:
             raise ValueError("Agent must be reset before stepping")
-        ai_message = self.action_agent.llm(self.messages)
+        ai_message = self.action_agent.llm.invoke(self.messages)
         print(f"\033[34m****Action Agent ai message****\n{ai_message.content}\033[0m")
         self.conversations.append(
             (self.messages[0].content, self.messages[1].content, ai_message.content)
@@ -293,24 +293,48 @@ class Voyager:
         return messages, reward, done, info
 
     def learn(self, reset_env=True):
-        if self.resume:
-            # keep the inventory
-            self.env.reset(
-                options={
-                    "mode": "soft",
-                    "wait_ticks": self.env_wait_ticks,
-                }
-            )
-        else:
-            # clear the inventory
-            self.env.reset(
-                options={
-                    "mode": "hard",
-                    "wait_ticks": self.env_wait_ticks,
-                }
-            )
-            self.resume = True
-        self.last_events = self.env.step("")
+        print(f"\033[32m===Starting learning process===\033[0m")
+        
+        try:
+            if self.resume:
+                # keep the inventory
+                self.env.reset(
+                    options={
+                        "mode": "soft",
+                        "wait_ticks": self.env_wait_ticks,
+                    }
+                )
+            else:
+                # clear the inventory
+                self.env.reset(
+                    options={
+                        "mode": "hard",
+                        "wait_ticks": self.env_wait_ticks,
+                    }
+                )
+                self.resume = True
+            self.last_events = self.env.step("")
+        except RuntimeError as e:
+            if "Minecraft server reply with code 400" in str(e):
+                print(f"\033[31m===Minecraft Connection Error===\033[0m")
+                print(f"\033[31mError: {e}\033[0m")
+                print(f"\033[31mThis error typically means:\033[0m")
+                print(f"\033[31m1. Minecraft server is not running on port {self.env.mc_port}\033[0m")
+                print(f"\033[31m2. Minecraft server is not properly configured for Voyager\033[0m")
+                print(f"\033[31m3. Mineflayer bot cannot connect to the Minecraft world\033[0m")
+                print(f"\033[31m\nPlease check:\033[0m")
+                print(f"\033[31m- Is Minecraft running and a world is open?\033[0m")
+                print(f"\033[31m- Is the world set to Creative mode and Peaceful difficulty?\033[0m")
+                print(f"\033[31m- Is 'Open to LAN' enabled with cheats ON?\033[0m")
+                print(f"\033[31m- Is the correct port number ({self.env.mc_port}) being used?\033[0m")
+                print(f"\033[31m\nSee installation/minecraft_instance_install.md for setup instructions.\033[0m")
+                return
+            else:
+                print(f"\033[31mUnexpected error during environment reset: {e}\033[0m")
+                return
+        except Exception as e:
+            print(f"\033[31mUnexpected error during environment initialization: {e}\033[0m")
+            return
 
         while True:
             if self.recorder.iteration > self.max_iterations:

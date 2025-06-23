@@ -53,13 +53,6 @@ class VoyagerEnv(gym.Env):
         self.restart_cooldown = 5  # Minimum seconds between restarts
         self.consecutive_failures = 0  # Track consecutive failures for exponential backoff
         self.max_consecutive_failures = 5  # Maximum failures before giving up
-        
-        # Add restart tracking to prevent excessive restarts
-        self.last_restart_time = 0
-        self.restart_count = 0
-        self.restart_cooldown = 5  # Minimum seconds between restarts
-        self.consecutive_failures = 0  # Track consecutive failures for exponential backoff
-        self.max_consecutive_failures = 5  # Maximum failures before giving up
 
     def get_mineflayer_process(self, server_port):
         U.f_mkdir(self.log_path, "mineflayer")

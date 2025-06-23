@@ -3,7 +3,7 @@ import { CollectBlock } from './CollectBlock'
 import { pathfinder as pathfinderPlugin } from 'mineflayer-pathfinder'
 import { plugin as toolPlugin } from 'mineflayer-tool'
 
-export function plugin (bot: Bot): void {
+function plugin (bot: Bot): void {
   // @ts-expect-error
   bot.collectBlock = new CollectBlock(bot)
 
@@ -22,4 +22,5 @@ function loadToolPlugin (bot: Bot): void {
   bot.loadPlugin(toolPlugin)
 }
 
-export { CollectBlock, Callback, CollectOptions } from './CollectBlock'
+// Use CommonJS export to avoid conflicts
+module.exports = plugin

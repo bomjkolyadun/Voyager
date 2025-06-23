@@ -103,6 +103,142 @@ voyager.learn()
   3. After the world is created, press `Esc` key and press `Open to LAN`.
   4. Select `Allow cheats: ON` and press `Start LAN World`. You will see the bot join the world soon. 
 
+# Model Provider Support
+
+Voyager supports multiple AI model providers and local models, giving you flexibility in choosing the best model for each agent. Each agent (Action, Curriculum, Critic, Skill Manager) can use different models and providers independently.
+
+## Supported Providers
+
+### OpenAI (Default)
+- **Models**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`, `gpt-4.1-nano`
+- **Setup**: Requires OpenAI API key
+- **Best for**: High-performance, reliable results
+
+### Local Models via Ollama
+- **Models**: `llama3.1:8b`, `llama3.1:70b`, `codellama`, `mistral`, etc.
+- **Setup**: Install and run [Ollama](https://ollama.ai/)
+- **Best for**: Privacy, cost savings, offline usage
+
+### Other OpenAI-Compatible Providers
+- **LM Studio**: Local models with OpenAI API compatibility
+- **vLLM**: High-performance inference server
+- **Text Generation WebUI**: Web interface for local models
+- **Together AI**: Cloud-hosted open source models
+
+## Configuration Examples
+
+### All OpenAI (Recommended for best performance)
+```python
+from voyager import Voyager
+
+openai_api_key = "YOUR_OPENAI_API_KEY"
+
+# Simple configuration - all agents use gpt-4.1-nano
+voyager = Voyager(
+    mc_port=25565,
+    openai_api_key=openai_api_key,
+    action_agent_model_name="gpt-4.1-nano",
+    curriculum_agent_model_name="gpt-4.1-nano",
+    curriculum_agent_qa_model_name="gpt-4.1-nano",
+    critic_agent_model_name="gpt-4.1-nano",
+    skill_manager_model_name="gpt-4.1-nano",
+)
+```
+
+### All Ollama (Best for privacy and cost)
+```python
+from voyager import Voyager
+
+# First, start Ollama and pull a model:
+# ollama serve
+# ollama pull llama3.1:8b
+
+openai_api_key = "ollama"  # Placeholder - Ollama doesn't need real key
+
+voyager = Voyager(
+    mc_port=25565,
+    openai_api_key=openai_api_key,
+    action_agent_model_name="llama3.1:8b",
+    action_agent_base_url="http://localhost:11434/v1",
+    curriculum_agent_model_name="llama3.1:8b",
+    curriculum_agent_base_url="http://localhost:11434/v1",
+    curriculum_agent_qa_model_name="llama3.1:8b",
+    curriculum_agent_qa_base_url="http://localhost:11434/v1",
+    critic_agent_model_name="llama3.1:8b",
+    critic_agent_base_url="http://localhost:11434/v1",
+    skill_manager_model_name="llama3.1:8b",
+    skill_manager_base_url="http://localhost:11434/v1",
+)
+```
+
+### Hybrid Configuration (Optimal cost/performance balance)
+```python
+from voyager import Voyager
+
+openai_api_key = "YOUR_OPENAI_API_KEY"
+
+voyager = Voyager(
+    mc_port=25565,
+    openai_api_key=openai_api_key,
+    
+    # Use GPT-4 for most critical agent
+    action_agent_model_name="gpt-4o",
+    action_agent_base_url=None,  # OpenAI default
+    
+    # Use local models for less critical agents
+    curriculum_agent_model_name="llama3.1:8b",
+    curriculum_agent_base_url="http://localhost:11434/v1",
+    
+    # Use cheaper OpenAI model for Q&A
+    curriculum_agent_qa_model_name="gpt-4o-mini",
+    curriculum_agent_qa_base_url=None,
+    
+    # Local models for evaluation and skills
+    critic_agent_model_name="llama3.1:8b",
+    critic_agent_base_url="http://localhost:11434/v1",
+    skill_manager_model_name="llama3.1:8b", 
+    skill_manager_base_url="http://localhost:11434/v1",
+)
+```
+
+## Agent Roles and Model Recommendations
+
+| Agent | Role | Recommended Model | Rationale |
+|-------|------|------------------|-----------|
+| **Action Agent** | Executes tasks in Minecraft | `gpt-4o` or `gpt-4.1-nano` | Most critical for gameplay success |
+| **Curriculum Agent** | Plans learning progression | `gpt-4o-mini` or `llama3.1:8b` | Good reasoning needed, but not critical |
+| **Curriculum QA** | Answers game mechanics questions | `gpt-4o-mini` or `gpt-3.5-turbo` | Factual knowledge, can be cheaper |
+| **Critic Agent** | Evaluates task completion | `gpt-4o-mini` or `llama3.1:8b` | Simple evaluation, local models work |
+| **Skill Manager** | Manages code library | `gpt-3.5-turbo` or `llama3.1:8b` | Code similarity, local models sufficient |
+
+## Setup Instructions
+
+### Ollama Setup
+1. **Install Ollama**: Download from [ollama.ai](https://ollama.ai/)
+2. **Start Ollama**: Run `ollama serve` in terminal
+3. **Pull Models**: Run `ollama pull llama3.1:8b` (or your preferred model)
+4. **Configure Voyager**: Use `base_url="http://localhost:11434/v1"`
+
+### LM Studio Setup
+1. **Install LM Studio**: Download from [lmstudio.ai](https://lmstudio.ai/)
+2. **Download Models**: Use LM Studio's model browser
+3. **Start Server**: Enable "Local Server" in LM Studio
+4. **Configure Voyager**: Use `base_url="http://localhost:1234/v1"`
+
+### Performance Tips
+- **Action Agent**: Always use the best available model (GPT-4 recommended)
+- **Cost Optimization**: Use local models for non-critical agents
+- **Latency**: Local models provide faster responses
+- **Reliability**: OpenAI models are more consistent for complex reasoning
+
+## Troubleshooting
+
+### Common Issues
+- **Connection Errors**: Ensure local model servers are running
+- **Model Not Found**: Verify model names match provider's format
+- **API Key Errors**: Check OpenAI API key is valid and has credits
+- **Performance Issues**: Try smaller local models if experiencing slowdowns 
+
 # Resume from a checkpoint during learning
 
 If you stop the learning process and want to resume from a checkpoint later, you can instantiate Voyager by:

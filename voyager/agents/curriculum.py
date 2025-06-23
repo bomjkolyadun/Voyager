@@ -6,10 +6,10 @@ import re
 import voyager.utils as U
 from voyager.prompts import load_prompt
 from voyager.utils.json_utils import fix_and_parse_json
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.vectorstores import Chroma
+from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_chroma import Chroma
 
 
 class CurriculumAgent:
@@ -25,17 +25,26 @@ class CurriculumAgent:
         mode="auto",
         warm_up=None,
         core_inventory_items: str | None = None,
+        base_url=None,
+        qa_base_url=None,  # Separate base URL for QA model
     ):
-        self.llm = ChatOpenAI(
-            model_name=model_name,
-            temperature=temperature,
-            request_timeout=request_timout,
-        )
-        self.qa_llm = ChatOpenAI(
-            model_name=qa_model_name,
-            temperature=qa_temperature,
-            request_timeout=request_timout,
-        )
+        llm_kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": request_timout,
+        }
+        if base_url:
+            llm_kwargs["base_url"] = base_url
+        self.llm = ChatOpenAI(**llm_kwargs)
+        
+        qa_llm_kwargs = {
+            "model": qa_model_name,
+            "temperature": qa_temperature,
+            "timeout": request_timout,
+        }
+        if qa_base_url or base_url:  # Use qa_base_url first, fallback to base_url
+            qa_llm_kwargs["base_url"] = qa_base_url or base_url
+        self.qa_llm = ChatOpenAI(**qa_llm_kwargs)
         assert mode in [
             "auto",
             "manual",
@@ -60,15 +69,39 @@ class CurriculumAgent:
             embedding_function=OpenAIEmbeddings(),
             persist_directory=f"{ckpt_dir}/curriculum/vectordb",
         )
-        assert self.qa_cache_questions_vectordb._collection.count() == len(
-            self.qa_cache
-        ), (
-            f"Curriculum Agent's qa cache question vectordb is not synced with qa_cache.json.\n"
-            f"There are {self.qa_cache_questions_vectordb._collection.count()} questions in vectordb "
-            f"but {len(self.qa_cache)} questions in qa_cache.json.\n"
-            f"Did you set resume=False when initializing the agent?\n"
-            f"You may need to manually delete the qa cache question vectordb directory for running from scratch.\n"
-        )
+        
+        # Handle vectordb sync issues gracefully
+        vectordb_count = self.qa_cache_questions_vectordb._collection.count()
+        qa_cache_count = len(self.qa_cache)
+        
+        if vectordb_count != qa_cache_count:
+            print(f"\033[33mWarning: Curriculum Agent's qa cache vectordb is not synced with qa_cache.json.\033[0m")
+            print(f"\033[33mThere are {vectordb_count} questions in vectordb but {qa_cache_count} questions in qa_cache.json.\033[0m")
+            
+            if not resume and vectordb_count > 0:
+                print(f"\033[33mClearing vectordb to start fresh since resume=False.\033[0m")
+                # Clear the vectordb collection by deleting all documents
+                try:
+                    # Get all IDs first
+                    all_data = self.qa_cache_questions_vectordb.get()
+                    if all_data['ids']:
+                        self.qa_cache_questions_vectordb.delete(ids=all_data['ids'])
+                    print(f"\033[33mVectordb cleared. Now synced with empty qa_cache.\033[0m")
+                except Exception as e:
+                    print(f"\033[33mError clearing vectordb: {e}. Continuing anyway.\033[0m")
+            elif resume and vectordb_count == 0 and qa_cache_count > 0:
+                print(f"\033[33mRebuilding vectordb from qa_cache.json since resume=True.\033[0m")
+                # Rebuild vectordb from qa_cache
+                for question in self.qa_cache.keys():
+                    self.qa_cache_questions_vectordb.add_texts(
+                        texts=[question],
+                        ids=[question],
+                        metadatas=[{"type": "question"}],
+                    )
+                print(f"\033[33mVectordb rebuilt with {len(self.qa_cache)} questions.\033[0m")
+            elif resume and vectordb_count > qa_cache_count:
+                print(f"\033[33mVectordb has more entries than qa_cache. This might indicate data corruption.\033[0m")
+                print(f"\033[33mConsider deleting the vectordb directory manually if issues persist.\033[0m")
         # if warm up not defined, initialize it as a dict, else, initialize all the missing value as a default value
         if not warm_up:
             warm_up = self.default_warmup
@@ -137,19 +170,37 @@ class CurriculumAgent:
         return system_message
 
     def render_observation(self, *, events, chest_observation):
-        assert events[-1][0] == "observe", "Last event must be observe"
-        event = events[-1][1]
-        biome = event["status"]["biome"]
-        time_of_day = event["status"]["timeOfDay"]
-        voxels = event["voxels"]
-        block_records = event["blockRecords"]
-        entities = event["status"]["entities"]
-        health = event["status"]["health"]
-        hunger = event["status"]["food"]
-        position = event["status"]["position"]
-        equipment = event["status"]["equipment"]
-        inventory_used = event["status"]["inventoryUsed"]
-        inventory = event["inventory"]
+        # Validate events structure
+        if not events:
+            print(f"\033[31mError: events list is empty\033[0m")
+            return self._get_default_observation(chest_observation)
+        
+        if len(events) == 0:
+            print(f"\033[31mError: events list has no elements\033[0m")
+            return self._get_default_observation(chest_observation)
+            
+        try:
+            assert events[-1][0] == "observe", "Last event must be observe"
+            event = events[-1][1]
+        except (IndexError, KeyError, TypeError) as e:
+            print(f"\033[31mError accessing event data: {e}\033[0m")
+            return self._get_default_observation(chest_observation)
+        
+        try:
+            biome = event["status"]["biome"]
+            time_of_day = event["status"]["timeOfDay"]
+            voxels = event["voxels"]
+            block_records = event["blockRecords"]
+            entities = event["status"]["entities"]
+            health = event["status"]["health"]
+            hunger = event["status"]["food"]
+            position = event["status"]["position"]
+            equipment = event["status"]["equipment"]
+            inventory_used = event["status"]["inventoryUsed"]
+            inventory = event["inventory"]
+        except (KeyError, TypeError) as e:
+            print(f"\033[31mError extracting event properties: {e}\033[0m")
+            return self._get_default_observation(chest_observation)
 
         if not any(
             "dirt" in block
@@ -206,6 +257,26 @@ class CurriculumAgent:
         }
         return observation
 
+    def _get_default_observation(self, chest_observation):
+        """Return a default observation when events data is invalid or empty"""
+        observation = {
+            "context": "",
+            "biome": "Biome: unknown\n\n",
+            "time": "Time: unknown\n\n",
+            "nearby_blocks": "Nearby blocks: None\n\n",
+            "other_blocks": "Other blocks that are recently seen: None\n\n",
+            "nearby_entities": "Nearby entities: None\n\n",
+            "health": "Health: 20.0/20\n\n",
+            "hunger": "Hunger: 20.0/20\n\n",
+            "position": "Position: x=0.0, y=0.0, z=0.0\n\n",
+            "equipment": "Equipment: {}\n\n",
+            "inventory": "Inventory (0/36): Empty\n\n",
+            "chests": chest_observation,
+            "completed_tasks": f"Completed tasks so far: {', '.join(self.completed_tasks) if self.completed_tasks else 'None'}\n\n",
+            "failed_tasks": f"Failed tasks that are too hard: {', '.join(self.failed_tasks) if self.failed_tasks else 'None'}\n\n",
+        }
+        return observation
+
     def render_human_message(self, *, events, chest_observation):
         content = ""
         observation = self.render_observation(
@@ -243,37 +314,61 @@ class CurriculumAgent:
             context = "You can mine one of oak, birch, spruce, jungle, acacia, dark oak, or mangrove logs."
             return task, context
 
-        # hard code task when inventory is almost full
-        inventoryUsed = events[-1][1]["status"]["inventoryUsed"]
+        # Validate events before accessing
+        if not events or len(events) == 0:
+            print(f"\033[31mError: events list is empty in propose_next_task\033[0m")
+            # Return a safe default task
+            task = "Mine 1 wood log"
+            context = "You can mine one of oak, birch, spruce, jungle, acacia, dark oak, or mangrove logs."
+            return task, context
+
+        try:
+            # hard code task when inventory is almost full
+            inventoryUsed = events[-1][1]["status"]["inventoryUsed"]
+        except (IndexError, KeyError, TypeError) as e:
+            print(f"\033[31mError accessing inventory data: {e}\033[0m")
+            # Return a safe default task
+            task = "Mine 1 wood log"
+            context = "You can mine one of oak, birch, spruce, jungle, acacia, dark oak, or mangrove logs."
+            return task, context
         if inventoryUsed >= 33:
             if chest_observation != "Chests: None\n\n":
                 chests = chest_observation[8:-2].split("\n")
                 for chest in chests:
-                    content = chest.split(":")[1]
-                    if content == " Unknown items inside" or content == " Empty":
-                        position = chest.split(":")[0]
-                        task = f"Deposit useless items into the chest at {position}"
-                        context = (
-                            f"Your inventory have {inventoryUsed} occupied slots before depositing. "
-                            "After depositing, your inventory should only have 20 occupied slots. "
-                            "You should deposit useless items such as andesite, dirt, cobblestone, etc. "
-                            "Also, you can deposit low-level tools, "
-                            "For example, if you have a stone pickaxe, you can deposit a wooden pickaxe. "
-                            "Make sure the list of useless items are in your inventory "
-                            "(do not list items already in the chest), "
-                            "You can use bot.inventoryUsed() to check how many inventory slots are used."
-                        )
-                        return task, context
-            if "chest" in events[-1][1]["inventory"]:
-                task = "Place a chest"
-                context = (
-                    f"You have a chest in inventory, place it around you. "
-                    f"If chests is not None, or nearby blocks contains chest, this task is success."
-                )
-            else:
+                    chest_parts = chest.split(":")
+                    if len(chest_parts) >= 2:
+                        content = chest_parts[1]
+                        if content == " Unknown items inside" or content == " Empty":
+                            position = chest_parts[0]
+                            task = f"Deposit useless items into the chest at {position}"
+                            context = (
+                                f"Your inventory have {inventoryUsed} occupied slots before depositing. "
+                                "After depositing, your inventory should only have 20 occupied slots. "
+                                "You should deposit useless items such as andesite, dirt, cobblestone, etc. "
+                                "Also, you can deposit low-level tools, "
+                                "For example, if you have a stone pickaxe, you can deposit a wooden pickaxe. "
+                                "Make sure the list of useless items are in your inventory "
+                                "(do not list items already in the chest), "
+                                "You can use bot.inventoryUsed() to check how many inventory slots are used."
+                            )
+                            return task, context
+            
+            try:
+                if "chest" in events[-1][1]["inventory"]:
+                    task = "Place a chest"
+                    context = (
+                        f"You have a chest in inventory, place it around you. "
+                        f"If chests is not None, or nearby blocks contains chest, this task is success."
+                    )
+                else:
+                    task = "Craft 1 chest"
+                    context = "Craft 1 chest with 8 planks of any kind of wood."
+                return task, context
+            except (IndexError, KeyError, TypeError) as e:
+                print(f"\033[31mError accessing inventory in propose_next_task: {e}\033[0m")
                 task = "Craft 1 chest"
                 context = "Craft 1 chest with 8 planks of any kind of wood."
-            return task, context
+                return task, context
 
         messages = [
             self.render_system_message(),
@@ -292,7 +387,7 @@ class CurriculumAgent:
     def propose_next_ai_task(self, *, messages, max_retries=5):
         if max_retries == 0:
             raise RuntimeError("Max retries reached, failed to propose ai task.")
-        curriculum = self.llm(messages).content
+        curriculum = self.llm.invoke(messages).content
         print(f"\033[31m****Curriculum Agent ai message****\n{curriculum}\033[0m")
         try:
             response = self.parse_ai_message(curriculum)
@@ -377,7 +472,7 @@ class CurriculumAgent:
         print(
             f"\033[31m****Curriculum Agent task decomposition****\nFinal task: {task}\033[0m"
         )
-        response = self.llm(messages).content
+        response = self.llm.invoke(messages).content
         print(f"\033[31m****Curriculum Agent task decomposition****\n{response}\033[0m")
         return fix_and_parse_json(response)
 
@@ -408,7 +503,7 @@ class CurriculumAgent:
                 texts=[question],
             )
             U.dump_json(self.qa_cache, f"{self.ckpt_dir}/curriculum/qa_cache.json")
-            self.qa_cache_questions_vectordb.persist()
+            # Note: Chroma now auto-persists, so no need to call persist() explicitly
             questions.append(question)
             answers.append(answer)
         assert len(questions_new) == len(questions) == len(answers)
@@ -429,7 +524,7 @@ class CurriculumAgent:
                 texts=[question],
             )
             U.dump_json(self.qa_cache, f"{self.ckpt_dir}/curriculum/qa_cache.json")
-            self.qa_cache_questions_vectordb.persist()
+            # Note: Chroma now auto-persists, so no need to call persist() explicitly
         context = f"Question: {question}\n{answer}"
         return context
 
@@ -446,7 +541,16 @@ class CurriculumAgent:
         return HumanMessage(content=content)
 
     def run_qa_step1_ask_questions(self, *, events, chest_observation):
-        biome = events[-1][1]["status"]["biome"].replace("_", " ")
+        # Validate events before accessing
+        if not events or len(events) == 0:
+            print(f"\033[31mError: events list is empty in run_qa_step1_ask_questions\033[0m")
+            return [], []
+        
+        try:
+            biome = events[-1][1]["status"]["biome"].replace("_", " ")
+        except (IndexError, KeyError, TypeError) as e:
+            print(f"\033[31mError accessing biome data: {e}\033[0m")
+            biome = "unknown"
         questions = [
             f"What are the blocks that I can find in the {biome} in Minecraft?",
             f"What are the items that I can find in the {biome} in Minecraft?",
@@ -459,7 +563,7 @@ class CurriculumAgent:
                 events=events, chest_observation=chest_observation
             ),
         ]
-        qa_response = self.qa_llm(messages).content
+        qa_response = self.qa_llm.invoke(messages).content
         try:
             # Regex pattern to extract question and concept pairs
             pattern = r"Question \d+: (.+)\nConcept \d+: (.+)"
@@ -493,6 +597,6 @@ class CurriculumAgent:
             self.render_human_message_qa_step2_answer_questions(question=question),
         ]
         print(f"\033[35mCurriculum Agent Question: {question}\033[0m")
-        qa_answer = self.qa_llm(messages).content
+        qa_answer = self.qa_llm.invoke(messages).content
         print(f"\033[31mCurriculum Agent {qa_answer}\033[0m")
         return qa_answer

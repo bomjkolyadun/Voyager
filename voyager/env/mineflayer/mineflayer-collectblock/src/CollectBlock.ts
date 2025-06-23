@@ -67,15 +67,35 @@ async function collectAll(
                             );
                             // @ts-ignore
                         } else if (err.name === "NoItem") {
-                            const properties =
-                                bot.registry.blocksByName[closest.name];
-                            const leastTool = Object.keys(
-                                properties.harvestTools
-                            )[0];
-                            const item = bot.registry.items[leastTool];
-                            bot.chat(
-                                `I need at least a ${item.name} to mine ${closest.name}!  Skip it!`
-                            );
+                            const blockName = closest?.name;
+                            
+                            if (!blockName) {
+                                bot.chat("Block name is undefined. Skipping.");
+                                return;
+                            }
+                            
+                            const blockProps = bot.registry.blocksByName[blockName];
+                            
+                            if (!blockProps) {
+                                bot.chat(`Unknown block type: ${blockName}. Skipping.`);
+                                return;
+                            }
+                            
+                            const harvestTools = blockProps.harvestTools;
+                            
+                            if (harvestTools && Object.keys(harvestTools).length > 0) {
+                                const leastTool = Object.keys(harvestTools)[0];
+                                const item = (bot.registry.items as Record<string, { name: string }>)[leastTool];
+                                
+                                if (item) {
+                                    bot.chat(`I need at least a ${item.name} to mine ${blockName}! Skip it!`);
+                                } else {
+                                    bot.chat(`I don’t know what tool to use for ${blockName}. Skipping.`);
+                                }
+                            } else {
+                                bot.chat(`No known tools can mine ${blockName}. Skipping.`);
+                            }
+                            
                             return;
                         } else if (
                             // @ts-ignore
@@ -188,14 +208,14 @@ async function mineBlock(
         options.targets.removeTarget(block);
         throw error("Unsafe block", "Block is not safe to break!");
     }
-
+    
     await bot.tool.equipForBlock(block, equipToolOptions);
-
+    
     if (!block.canHarvest(bot.heldItem ? bot.heldItem.type : bot.heldItem)) {
         options.targets.removeTarget(block);
         throw error("NoItem", "Bot does not have a harvestable tool!");
     }
-
+    
     const tempEvents = new TemporarySubscriber(bot);
     tempEvents.subscribeTo("itemDrop", (entity: Entity) => {
         if (
@@ -210,7 +230,7 @@ async function mineBlock(
         // Waiting for items to drop
         await new Promise<void>((resolve) => {
             let remainingTicks = 10;
-            tempEvents.subscribeTo("physicTick", () => {
+            tempEvents.subscribeTo("physicsTick", () => {
                 remainingTicks--;
                 if (remainingTicks <= 0) {
                     tempEvents.cleanup();
@@ -224,46 +244,46 @@ async function mineBlock(
 }
 
 /**
- * A set of options to apply when collecting the given targets.
- */
+* A set of options to apply when collecting the given targets.
+*/
 export interface CollectOptions {
     /**
-     * If true, the target(s) will be appended to the existing target list instead of
-     * starting a new task. Defaults to false.
-     */
+    * If true, the target(s) will be appended to the existing target list instead of
+    * starting a new task. Defaults to false.
+    */
     append?: boolean;
-
+    
     /**
-     * If true, errors will not be thrown when a path to the target block cannot
-     * be found. The bot will attempt to choose the best available position it
-     * can find, instead. Errors are still thrown if the bot cannot interact with
-     * the block from it's final location. Defaults to false.
-     */
+    * If true, errors will not be thrown when a path to the target block cannot
+    * be found. The bot will attempt to choose the best available position it
+    * can find, instead. Errors are still thrown if the bot cannot interact with
+    * the block from it's final location. Defaults to false.
+    */
     ignoreNoPath?: boolean;
-
+    
     /**
-     * Gets the list of chest locations to use when storing items after the bot's
-     * inventory becomes full. If undefined, it defaults to the chest location
-     * list on the bot.collectBlock plugin.
-     */
+    * Gets the list of chest locations to use when storing items after the bot's
+    * inventory becomes full. If undefined, it defaults to the chest location
+    * list on the bot.collectBlock plugin.
+    */
     chestLocations?: Vec3[];
-
+    
     /**
-     * When transferring items to a chest, this filter is used to determine what
-     * items are allowed to be moved, and what items aren't allowed to be moved.
-     * Defaults to the item filter specified on the bot.collectBlock plugin.
-     */
+    * When transferring items to a chest, this filter is used to determine what
+    * items are allowed to be moved, and what items aren't allowed to be moved.
+    * Defaults to the item filter specified on the bot.collectBlock plugin.
+    */
     itemFilter?: ItemFilter;
-
+    
     /**
-     * The total number of items to collect
-     */
+    * The total number of items to collect
+    */
     count?: number;
 }
 
 /**
- * A version of collect options where all values are assigned.
- */
+* A version of collect options where all values are assigned.
+*/
 interface CollectOptionsFull {
     append: boolean;
     ignoreNoPath: boolean;
@@ -274,39 +294,39 @@ interface CollectOptionsFull {
 }
 
 /**
- * The collect block plugin.
- */
+* The collect block plugin.
+*/
 export class CollectBlock {
     /**
-     * The bot.
-     */
+    * The bot.
+    */
     private readonly bot: Bot;
-
+    
     /**
-     * The list of active targets being collected.
-     */
+    * The list of active targets being collected.
+    */
     private readonly targets: Targets;
-
+    
     /**
-     * The movements configuration to be sent to the pathfinder plugin.
-     */
+    * The movements configuration to be sent to the pathfinder plugin.
+    */
     movements?: Movements;
-
+    
     /**
-     * A list of chest locations which the bot is allowed to empty their inventory into
-     * if it becomes full while the bot is collecting resources.
-     */
+    * A list of chest locations which the bot is allowed to empty their inventory into
+    * if it becomes full while the bot is collecting resources.
+    */
     chestLocations: Vec3[] = [];
-
+    
     /**
-     * When collecting items, this filter is used to determine what items should be placed
-     * into a chest if the bot's inventory becomes full. By default, returns true for all
-     * items except for tools, weapons, and armor.
-     *
-     * @param item - The item stack in the bot's inventory to check.
-     *
-     * @returns True if the item should be moved into the chest. False otherwise.
-     */
+    * When collecting items, this filter is used to determine what items should be placed
+    * into a chest if the bot's inventory becomes full. By default, returns true for all
+    * items except for tools, weapons, and armor.
+    *
+    * @param item - The item stack in the bot's inventory to check.
+    *
+    * @returns True if the item should be moved into the chest. False otherwise.
+    */
     itemFilter: ItemFilter = (item: Item) => {
         if (item.name.includes("helmet")) return false;
         if (item.name.includes("chestplate")) return false;
@@ -320,33 +340,33 @@ export class CollectBlock {
         if (item.name.includes("hoe")) return false;
         return true;
     };
-
+    
     /**
-     * Creates a new instance of the create block plugin.
-     *
-     * @param bot - The bot this plugin is acting on.
-     */
+    * Creates a new instance of the create block plugin.
+    *
+    * @param bot - The bot this plugin is acting on.
+    */
     constructor(bot: Bot) {
         this.bot = bot;
         this.targets = new Targets(bot);
         // @ts-ignore
         this.movements = new Movements(bot, mcDataLoader(bot.version));
     }
-
+    
     /**
-     * If target is a block:
-     * Causes the bot to break and collect the target block.
-     *
-     * If target is an item drop:
-     * Causes the bot to collect the item drop.
-     *
-     * If target is an array containing items or blocks, preforms the correct action for
-     * all targets in that array sorting dynamically by distance.
-     *
-     * @param target - The block(s) or item(s) to collect.
-     * @param options - The set of options to use when handling these targets
-     * @param cb - The callback that is called finished.
-     */
+    * If target is a block:
+    * Causes the bot to break and collect the target block.
+    *
+    * If target is an item drop:
+    * Causes the bot to collect the item drop.
+    *
+    * If target is an array containing items or blocks, preforms the correct action for
+    * all targets in that array sorting dynamically by distance.
+    *
+    * @param target - The block(s) or item(s) to collect.
+    * @param options - The set of options to use when handling these targets
+    * @param cb - The callback that is called finished.
+    */
     async collect(
         target: Collectable | Collectable[],
         options: CollectOptions | Callback = {},
@@ -358,7 +378,7 @@ export class CollectBlock {
         }
         // @ts-expect-error
         if (cb != null) return callbackify(this.collect)(target, options, cb);
-
+        
         const optionsFull: CollectOptionsFull = {
             append: options.append ?? false,
             ignoreNoPath: options.ignoreNoPath ?? false,
@@ -367,32 +387,32 @@ export class CollectBlock {
             targets: this.targets,
             count: options.count ?? Infinity,
         };
-
+        
         if (this.bot.pathfinder == null) {
             throw error(
                 "UnresolvedDependency",
                 "The mineflayer-collectblock plugin relies on the mineflayer-pathfinder plugin to run!"
             );
         }
-
+        
         if (this.bot.tool == null) {
             throw error(
                 "UnresolvedDependency",
                 "The mineflayer-collectblock plugin relies on the mineflayer-tool plugin to run!"
             );
         }
-
+        
         if (this.movements != null) {
             this.bot.pathfinder.setMovements(this.movements);
         }
-
+        
         if (!optionsFull.append) await this.cancelTask();
         if (Array.isArray(target)) {
             this.targets.appendTargets(target);
         } else {
             this.targets.appendTarget(target);
         }
-
+        
         try {
             await collectAll(this.bot, optionsFull);
             this.targets.clear();
@@ -406,16 +426,16 @@ export class CollectBlock {
             this.bot.emit("collectBlock_finished");
         }
     }
-
+    
     /**
-     * Loads all touching blocks of the same type to the given block and returns them as an array.
-     * This effectively acts as a flood fill algorithm to retrieve blocks in the same ore vein and similar.
-     *
-     * @param block - The starting block.
-     * @param maxBlocks - The maximum number of blocks to look for before stopping.
-     * @param maxDistance - The max distance from the starting block to look.
-     * @param floodRadius - The max distance distance from block A to block B to be considered "touching"
-     */
+    * Loads all touching blocks of the same type to the given block and returns them as an array.
+    * This effectively acts as a flood fill algorithm to retrieve blocks in the same ore vein and similar.
+    *
+    * @param block - The starting block.
+    * @param maxBlocks - The maximum number of blocks to look for before stopping.
+    * @param maxDistance - The max distance from the starting block to look.
+    * @param floodRadius - The max distance distance from block A to block B to be considered "touching"
+    */
     findFromVein(
         block: Block,
         maxBlocks = 100,
@@ -430,12 +450,12 @@ export class CollectBlock {
             floodRadius
         );
     }
-
+    
     /**
-     * Cancels the current collection task, if still active.
-     *
-     * @param cb - The callback to use when the task is stopped.
-     */
+    * Cancels the current collection task, if still active.
+    *
+    * @param cb - The callback to use when the task is stopped.
+    */
     async cancelTask(cb?: Callback): Promise<void> {
         if (this.targets.empty) {
             if (cb != null) cb();

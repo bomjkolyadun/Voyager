@@ -2,7 +2,7 @@ import copy
 import json
 import os
 import time
-from typing import Dict
+from typing import Dict, Union
 
 import voyager.utils as U
 from .env import VoyagerEnv
@@ -25,23 +25,28 @@ class Voyager:
         env_request_timeout: int = 600,
         max_iterations: int = 160,
         reset_placed_if_failed: bool = False,
-        action_agent_model_name: str = "gpt-4",
+        action_agent_model_name: str = "gpt-4.1-nano",
+        action_agent_base_url: Union[str, None] = None,
         action_agent_temperature: float = 0,
         action_agent_task_max_retries: int = 4,
         action_agent_show_chat_log: bool = True,
         action_agent_show_execution_error: bool = True,
-        curriculum_agent_model_name: str = "gpt-4",
+        curriculum_agent_model_name: str = "gpt-4.1-nano",
+        curriculum_agent_base_url: Union[str, None] = None,
         curriculum_agent_temperature: float = 0,
-        curriculum_agent_qa_model_name: str = "gpt-3.5-turbo",
+        curriculum_agent_qa_model_name: str = "gpt-4.1-nano",
+        curriculum_agent_qa_base_url: Union[str, None] = None,
         curriculum_agent_qa_temperature: float = 0,
         curriculum_agent_warm_up: Dict[str, int] = None,
         curriculum_agent_core_inventory_items: str = r".*_log|.*_planks|stick|crafting_table|furnace"
         r"|cobblestone|dirt|coal|.*_pickaxe|.*_sword|.*_axe",
         curriculum_agent_mode: str = "auto",
-        critic_agent_model_name: str = "gpt-4",
+        critic_agent_model_name: str = "gpt-4.1-nano",
+        critic_agent_base_url: Union[str, None] = None,
         critic_agent_temperature: float = 0,
         critic_agent_mode: str = "auto",
-        skill_manager_model_name: str = "gpt-3.5-turbo",
+        skill_manager_model_name: str = "gpt-4.1-nano",
+        skill_manager_base_url: Union[str, None] = None,
         skill_manager_temperature: float = 0,
         skill_manager_retrieval_top_k: int = 5,
         openai_api_request_timeout: int = 240,
@@ -123,6 +128,7 @@ class Voyager:
             resume=resume,
             chat_log=action_agent_show_chat_log,
             execution_error=action_agent_show_execution_error,
+            base_url=action_agent_base_url,
         )
         self.action_agent_task_max_retries = action_agent_task_max_retries
         self.curriculum_agent = CurriculumAgent(
@@ -136,12 +142,15 @@ class Voyager:
             mode=curriculum_agent_mode,
             warm_up=curriculum_agent_warm_up,
             core_inventory_items=curriculum_agent_core_inventory_items,
+            base_url=curriculum_agent_base_url,
+            qa_base_url=curriculum_agent_qa_base_url,
         )
         self.critic_agent = CriticAgent(
             model_name=critic_agent_model_name,
             temperature=critic_agent_temperature,
             request_timout=openai_api_request_timeout,
             mode=critic_agent_mode,
+            base_url=critic_agent_base_url,
         )
         self.skill_manager = SkillManager(
             model_name=skill_manager_model_name,
@@ -150,6 +159,7 @@ class Voyager:
             request_timout=openai_api_request_timeout,
             ckpt_dir=skill_library_dir if skill_library_dir else ckpt_dir,
             resume=True if resume or skill_library_dir else False,
+            base_url=skill_manager_base_url,
         )
         self.recorder = U.EventRecorder(ckpt_dir=ckpt_dir, resume=resume)
         self.resume = resume
@@ -203,7 +213,7 @@ class Voyager:
     def step(self):
         if self.action_agent_rollout_num_iter < 0:
             raise ValueError("Agent must be reset before stepping")
-        ai_message = self.action_agent.llm(self.messages)
+        ai_message = self.action_agent.llm.invoke(self.messages)
         print(f"\033[34m****Action Agent ai message****\n{ai_message.content}\033[0m")
         self.conversations.append(
             (self.messages[0].content, self.messages[1].content, ai_message.content)
@@ -293,24 +303,48 @@ class Voyager:
         return messages, reward, done, info
 
     def learn(self, reset_env=True):
-        if self.resume:
-            # keep the inventory
-            self.env.reset(
-                options={
-                    "mode": "soft",
-                    "wait_ticks": self.env_wait_ticks,
-                }
-            )
-        else:
-            # clear the inventory
-            self.env.reset(
-                options={
-                    "mode": "hard",
-                    "wait_ticks": self.env_wait_ticks,
-                }
-            )
-            self.resume = True
-        self.last_events = self.env.step("")
+        print(f"\033[32m===Starting learning process===\033[0m")
+        
+        try:
+            if self.resume:
+                # keep the inventory
+                self.env.reset(
+                    options={
+                        "mode": "soft",
+                        "wait_ticks": self.env_wait_ticks,
+                    }
+                )
+            else:
+                # clear the inventory
+                self.env.reset(
+                    options={
+                        "mode": "hard",
+                        "wait_ticks": self.env_wait_ticks,
+                    }
+                )
+                self.resume = True
+            self.last_events = self.env.step("")
+        except RuntimeError as e:
+            if "Minecraft server reply with code 400" in str(e):
+                print(f"\033[31m===Minecraft Connection Error===\033[0m")
+                print(f"\033[31mError: {e}\033[0m")
+                print(f"\033[31mThis error typically means:\033[0m")
+                print(f"\033[31m1. Minecraft server is not running on port {self.env.mc_port}\033[0m")
+                print(f"\033[31m2. Minecraft server is not properly configured for Voyager\033[0m")
+                print(f"\033[31m3. Mineflayer bot cannot connect to the Minecraft world\033[0m")
+                print(f"\033[31m\nPlease check:\033[0m")
+                print(f"\033[31m- Is Minecraft running and a world is open?\033[0m")
+                print(f"\033[31m- Is the world set to Creative mode and Peaceful difficulty?\033[0m")
+                print(f"\033[31m- Is 'Open to LAN' enabled with cheats ON?\033[0m")
+                print(f"\033[31m- Is the correct port number ({self.env.mc_port}) being used?\033[0m")
+                print(f"\033[31m\nSee installation/minecraft_instance_install.md for setup instructions.\033[0m")
+                return
+            else:
+                print(f"\033[31mUnexpected error during environment reset: {e}\033[0m")
+                return
+        except Exception as e:
+            print(f"\033[31mUnexpected error during environment initialization: {e}\033[0m")
+            return
 
         while True:
             if self.recorder.iteration > self.max_iterations:

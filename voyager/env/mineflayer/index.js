@@ -422,6 +422,29 @@ app.post('/', (req, res) => {
   res.json({ status: "ready" });
 });
 
+// Chat endpoint to send messages to the bot
+app.post("/chat", (req, res) => {
+    if (!bot) {
+        res.status(400).json({ error: "Bot not spawned" });
+        return;
+    }
+    
+    const { message, sender = "Human" } = req.body;
+    if (!message) {
+        res.status(400).json({ error: "Message is required" });
+        return;
+    }
+    
+    // Emit a chat event as if it came from a player
+    bot.emit("chatEvent", sender, message);
+    console.log(`Chat from ${sender}: ${message}`);
+    
+    res.json({ 
+        status: "success", 
+        message: `Message '${message}' sent to bot from ${sender}` 
+    });
+});
+
 // Server listening to PORT 3000
 
 const DEFAULT_PORT = 3000;

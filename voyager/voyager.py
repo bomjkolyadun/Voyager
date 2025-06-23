@@ -2,7 +2,7 @@ import copy
 import json
 import os
 import time
-from typing import Dict
+from typing import Dict, Union
 
 import voyager.utils as U
 from .env import VoyagerEnv
@@ -26,22 +26,27 @@ class Voyager:
         max_iterations: int = 160,
         reset_placed_if_failed: bool = False,
         action_agent_model_name: str = "gpt-4.1-nano",
+        action_agent_base_url: Union[str, None] = None,
         action_agent_temperature: float = 0,
         action_agent_task_max_retries: int = 4,
         action_agent_show_chat_log: bool = True,
         action_agent_show_execution_error: bool = True,
         curriculum_agent_model_name: str = "gpt-4.1-nano",
+        curriculum_agent_base_url: Union[str, None] = None,
         curriculum_agent_temperature: float = 0,
         curriculum_agent_qa_model_name: str = "gpt-4.1-nano",
+        curriculum_agent_qa_base_url: Union[str, None] = None,
         curriculum_agent_qa_temperature: float = 0,
         curriculum_agent_warm_up: Dict[str, int] = None,
         curriculum_agent_core_inventory_items: str = r".*_log|.*_planks|stick|crafting_table|furnace"
         r"|cobblestone|dirt|coal|.*_pickaxe|.*_sword|.*_axe",
         curriculum_agent_mode: str = "auto",
         critic_agent_model_name: str = "gpt-4.1-nano",
+        critic_agent_base_url: Union[str, None] = None,
         critic_agent_temperature: float = 0,
         critic_agent_mode: str = "auto",
         skill_manager_model_name: str = "gpt-4.1-nano",
+        skill_manager_base_url: Union[str, None] = None,
         skill_manager_temperature: float = 0,
         skill_manager_retrieval_top_k: int = 5,
         openai_api_request_timeout: int = 240,
@@ -123,6 +128,7 @@ class Voyager:
             resume=resume,
             chat_log=action_agent_show_chat_log,
             execution_error=action_agent_show_execution_error,
+            base_url=action_agent_base_url,
         )
         self.action_agent_task_max_retries = action_agent_task_max_retries
         self.curriculum_agent = CurriculumAgent(
@@ -136,12 +142,15 @@ class Voyager:
             mode=curriculum_agent_mode,
             warm_up=curriculum_agent_warm_up,
             core_inventory_items=curriculum_agent_core_inventory_items,
+            base_url=curriculum_agent_base_url,
+            qa_base_url=curriculum_agent_qa_base_url,
         )
         self.critic_agent = CriticAgent(
             model_name=critic_agent_model_name,
             temperature=critic_agent_temperature,
             request_timout=openai_api_request_timeout,
             mode=critic_agent_mode,
+            base_url=critic_agent_base_url,
         )
         self.skill_manager = SkillManager(
             model_name=skill_manager_model_name,
@@ -150,6 +159,7 @@ class Voyager:
             request_timout=openai_api_request_timeout,
             ckpt_dir=skill_library_dir if skill_library_dir else ckpt_dir,
             resume=True if resume or skill_library_dir else False,
+            base_url=skill_manager_base_url,
         )
         self.recorder = U.EventRecorder(ckpt_dir=ckpt_dir, resume=resume)
         self.resume = resume

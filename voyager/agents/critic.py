@@ -11,12 +11,16 @@ class CriticAgent:
         temperature=0,
         request_timout=120,
         mode="auto",
+        base_url=None,
     ):
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            timeout=request_timout,
-        )
+        llm_kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": request_timout,
+        }
+        if base_url:
+            llm_kwargs["base_url"] = base_url
+        self.llm = ChatOpenAI(**llm_kwargs)
         assert mode in ["auto", "manual"]
         self.mode = mode
 

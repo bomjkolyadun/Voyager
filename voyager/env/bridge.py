@@ -331,3 +331,25 @@ class VoyagerEnv(gym.Env):
             print(f"📊 Time since last restart: {time_since_restart:.1f}s")
         
         print("=== End Health Check ===")
+
+    def send_chat_message(self, message, sender="Human"):
+        """Send a chat message to the bot."""
+        if not self.mineflayer.is_running:
+            print("⚠️  Mineflayer is not running. Cannot send chat message.")
+            return False
+            
+        try:
+            data = {
+                "message": message,
+                "sender": sender
+            }
+            res = requests.post(f"{self.server}/chat", json=data, timeout=10)
+            if res.status_code == 200:
+                print(f"✅ Chat message sent: {sender}: {message}")
+                return True
+            else:
+                print(f"❌ Failed to send chat message: {res.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ Error sending chat message: {e}")
+            return False

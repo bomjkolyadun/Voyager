@@ -19,12 +19,16 @@ class SkillManager:
         request_timout=120,
         ckpt_dir="ckpt",
         resume=False,
+        base_url=None,
     ):
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            timeout=request_timout,
-        )
+        llm_kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": request_timout,
+        }
+        if base_url:
+            llm_kwargs["base_url"] = base_url
+        self.llm = ChatOpenAI(**llm_kwargs)
         U.f_mkdir(f"{ckpt_dir}/skill/code")
         U.f_mkdir(f"{ckpt_dir}/skill/description")
         U.f_mkdir(f"{ckpt_dir}/skill/vectordb")

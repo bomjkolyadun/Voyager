@@ -25,17 +25,26 @@ class CurriculumAgent:
         mode="auto",
         warm_up=None,
         core_inventory_items: str | None = None,
+        base_url=None,
+        qa_base_url=None,  # Separate base URL for QA model
     ):
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            timeout=request_timout,
-        )
-        self.qa_llm = ChatOpenAI(
-            model=qa_model_name,
-            temperature=qa_temperature,
-            timeout=request_timout,
-        )
+        llm_kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": request_timout,
+        }
+        if base_url:
+            llm_kwargs["base_url"] = base_url
+        self.llm = ChatOpenAI(**llm_kwargs)
+        
+        qa_llm_kwargs = {
+            "model": qa_model_name,
+            "temperature": qa_temperature,
+            "timeout": request_timout,
+        }
+        if qa_base_url or base_url:  # Use qa_base_url first, fallback to base_url
+            qa_llm_kwargs["base_url"] = qa_base_url or base_url
+        self.qa_llm = ChatOpenAI(**qa_llm_kwargs)
         assert mode in [
             "auto",
             "manual",
